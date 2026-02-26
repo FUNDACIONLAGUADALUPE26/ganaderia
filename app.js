@@ -314,16 +314,148 @@ function renderAnimals() {
     .forEach((a) => {
       const tr = document.createElement("tr");
       tr.innerHTML = `<td>${escapeHtml(a.arete || "—")}</td><td>${escapeHtml(a.name || "—")}</td><td>${escapeHtml(a.finca || "—")}</td><td>${escapeHtml(a.sexo || "—")}</td><td>${escapeHtml(a.raza || "—")}</td>
-        <td style="white-space:nowrap"><button class="btn secondary">Ver/Editar</button> <button class="btn danger">Borrar</button></td>`;
+        <td style="white-space:nowrap"><button class="btn secondary">Ver/Editar</button> <button class="btn secondary">Historial</button> <button class="btn danger">Borrar</button></td>`;
       const btns = tr.querySelectorAll("button");
       btns[0].onclick = () => openAnimalForm(a);
-      btns[1].onclick = async () => {
+      btns[1].onclick = () => openAnimalHistory(a.id);
+      btns[2].onclick = async () => {
         if (!confirm("Borrar animal?")) return;
         await delRow(STORES.animals, a.id);
         await renderAll();
       };
       tb.appendChild(tr);
     });
+}
+
+
+
+async function openAnimalHistory(animalId){
+  const a = animalById(animalId);
+  if (!a) return;
+
+  // Collect events
+  const meds = state.meds.filter(m => m.animalId === animalId).slice()
+    .sort((x,y)=> (y.fecha||"").localeCompare(x.fecha||""));
+  const sanidad = state.healthEvents.filter(h => h.animalId === animalId).slice()
+    .sort((x,y)=> (y.date||"").localeCompare(x.date||""));
+  const boosters = state.boosters.filter(b => b.animalId === animalId).slice()
+    .sort((x,y)=> (y.refDate||"").localeCompare(x.refDate||""));
+
+  const header = `
+    <div class="item" style="margin-bottom:10px">
+      <div>
+        <div style="font-weight:900; font-size:16px">${escapeHtml(a.arete || "s/a")} • ${escapeHtml(a.name || "")}</div>
+        <div class="small">Finca: ${escapeHtml(a.finca || "—")} • Sexo: ${escapeHtml(a.sexo || "—")} • Raza: ${escapeHtml(a.raza || "—")}</div>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end">
+        <button class="btn" id="histAddMed">+ Medicamento</button>
+        <button class="btn" id="histAddSan">+ Sanidad</button>
+      </div>
+    </div>
+  `;
+
+  const listBlock = (title, rowsHtml) => `
+    <div style="margin-top:12px">
+      <div style="font-weight:900; margin:6px 0">${escapeHtml(title)}</div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Fecha</th><th>Detalle</th><th>Usuario</th><th></th></tr></thead>
+          <tbody>${rowsHtml || `<tr><td colspan="4">Sin registros.</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  const medsRows = meds.map(m => `
+    <tr>
+      <td>${escapeHtml(m.fecha || "")}</td>
+      <td>
+        <b>${escapeHtml(m.procedimiento || "")}</b>
+        ${m.plan ? `<div class="small">${escapeHtml(m.plan)}</div>`:""}
+        ${m.notas ? `<div class="small">${escapeHtml(m.notas)}</div>`:""}
+      </td>
+      <td>${escapeHtml(userName(m.createdBy))}</td>
+      <td style="white-space:nowrap"><button class="btn secondary" data-edit-med="${escapeAttr(m.id)}">Ver/Editar</button></td>
+    </tr>
+  `).join("");
+
+  const sanRows = sanidad.map(h => `
+    <tr>
+      <td>${escapeHtml(h.date || "")}</td>
+      <td><b>${escapeHtml(h.procedure || "")}</b></td>
+      <td>${escapeHtml(userName(h.createdBy))}</td>
+      <td style="white-space:nowrap">—</td>
+    </tr>
+  `).join("");
+
+  const boostRows = boosters.map(b => {
+    const kind = classifyBooster(b);
+    return `
+      <tr>
+        <td>${escapeHtml(b.refDate || "")}</td>
+        <td>
+          <span class="badge ${badgeClass(kind)}" style="margin-right:6px">${escapeHtml(labelBooster(kind))}</span>
+          <b>${escapeHtml(b.procedure || "")}</b>
+        </td>
+        <td>${escapeHtml(userName(b.createdBy))}</td>
+        <td style="white-space:nowrap">
+          ${b.status === "done"
+            ? `<span class="badge ok">HECHO</span>`
+            : `<button class="btn secondary" data-done-boo="${escapeAttr(b.id)}">Marcar hecho</button>`}
+        </td>
+      </tr>
+    `;
+  }).join("");
+
+  showModal(
+    "Historial médico",
+    `${header}
+     ${listBlock("Medicamentos / Procedimientos", medsRows)}
+     ${listBlock("Sanidad (aplicaciones)", sanRows)}
+     ${listBlock("Refuerzos", boostRows)}
+    `
+  );
+
+  $("histAddMed").onclick = () => {
+    closeModal();
+    openMedForm({
+      animalId,
+      nombre: "",
+      fecha: todayISO(),
+      procedimiento: "",
+      responsable: "",
+      plan: "",
+      costo: "",
+      notas: "",
+      finca: a.finca || "",
+      extras: {},
+    });
+  };
+
+  $("histAddSan").onclick = () => {
+    closeModal();
+    setTab("health");
+    openHealthForm(animalId);
+  };
+
+  // Bind edit buttons
+  document.querySelectorAll("[data-edit-med]").forEach(btn => {
+    btn.addEventListener("click", (e)=>{
+      const id = e.currentTarget.getAttribute("data-edit-med");
+      const m = state.meds.find(x=>x.id===id);
+      if (!m) return;
+      closeModal();
+      openMedForm(m);
+    });
+  });
+
+  document.querySelectorAll("[data-done-boo]").forEach(btn => {
+    btn.addEventListener("click", async (e)=>{
+      const id = e.currentTarget.getAttribute("data-done-boo");
+      await markBoosterDone(id);
+      openAnimalHistory(animalId);
+    });
+  });
 }
 
 // =====================
@@ -433,7 +565,7 @@ function badgeClass(k) {
   return k === "overdue" || k === "d3" ? "bad" : k === "d10" || k === "d15" ? "warn" : "ok";
 }
 
-async function openHealthForm() {
+async function openHealthForm(selectedAnimalId = null) {
   const opts = animalOptions();
   if (opts.length === 0) {
     alert("Primero agrega animales.");
@@ -445,7 +577,7 @@ async function openHealthForm() {
     "Registrar sanidad + refuerzos",
     `<div class="formgrid">
       ${formInput("hDate", "Fecha aplicación", "date", todayISO())}
-      ${formSelect("hAnimal", "Animal", opts, opts[0].value)}
+      ${formSelect("hAnimal", "Animal", opts, selectedAnimalId || opts[0].value)}
       ${formInput("hProc", "Procedimiento", "text", "", "Ej: Ricomax / Carbón")}
       <div class="full">
         <div style="font-weight:800; margin-bottom:6px">Refuerzos (múltiples)</div>
