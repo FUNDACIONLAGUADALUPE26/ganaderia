@@ -51,6 +51,53 @@ function escapeAttr(s) {
     .replaceAll(">", "&gt;");
 }
 
+// =====================
+// Images (local)
+// =====================
+async function imageFileToDataURL(file, { maxW = 900, maxH = 900, quality = 0.72, type = "image/jpeg" } = {}) {
+  if (!file) return "";
+  // Read file
+  const dataURL = await new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = () => rej(fr.error);
+    fr.readAsDataURL(file);
+  });
+
+  // Load into <img>
+  const img = await new Promise((res, rej) => {
+    const i = new Image();
+    i.onload = () => res(i);
+    i.onerror = () => rej(new Error("No se pudo leer la imagen"));
+    i.src = dataURL;
+  });
+
+  // Resize in canvas
+  let { width: w, height: h } = img;
+  const scale = Math.min(1, maxW / w, maxH / h);
+  w = Math.max(1, Math.round(w * scale));
+  h = Math.max(1, Math.round(h * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0, w, h);
+
+  try {
+    return canvas.toDataURL(type, quality);
+  } catch {
+    // Fallback if Safari blocks quality param for some types
+    return canvas.toDataURL("image/jpeg", 0.72);
+  }
+}
+
+function isDataURLImage(s) {
+  return typeof s === "string" && s.startsWith("data:image/");
+}
+
+
+
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const parseISO = (s) => {
   if (!s) return null;
@@ -261,6 +308,20 @@ async function openAnimalForm(existing) {
       )}
       ${formInput("aRaza", "Raza", "text", a.raza, "Ej: Girolanda F1")}
       <div class="full">
+        <label class="label">Foto del animal (opcional)</label>
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+          <img id="aPhotoPreview" class="thumb" alt="Foto" style="display:${a.photo ? "block" : "none"}" src="${a.photo ? escapeAttr(a.photo) : ""}" />
+          <div style="display:flex; gap:8px; flex-wrap:wrap">
+            <label class="btn secondary filebtn">
+              Elegir / tomar foto
+              <input id="aPhotoFile" type="file" accept="image/*" capture="environment" />
+            </label>
+            <button class="btn danger" id="aPhotoRemove" style="display:${a.photo ? "inline-flex" : "none"}">Quitar foto</button>
+          </div>
+        </div>
+        <div class="help">La foto se guarda en el dispositivo y viaja en el respaldo JSON. Se optimiza para que no pese mucho.</div>
+      </div>
+      <div class="full">
         <label class="label">Extras (todas las columnas del Excel) — JSON</label>
         <textarea id="aExtras" rows="6">${escapeHtml(extrasTxt)}</textarea>
       </div>
@@ -270,6 +331,44 @@ async function openAnimalForm(existing) {
       </div>
     </div>`
   );
+
+  // Foto (dataURL optimizada)
+  let photoData = a.photo || "";
+  const pv = $("aPhotoPreview");
+  const rm = $("aPhotoRemove");
+  const fi = $("aPhotoFile");
+
+  const refreshPhotoUI = () => {
+    if (pv) {
+      pv.style.display = photoData ? "block" : "none";
+      pv.src = photoData || "";
+    }
+    if (rm) rm.style.display = photoData ? "inline-flex" : "none";
+  };
+  refreshPhotoUI();
+
+  if (rm) {
+    rm.onclick = () => {
+      photoData = "";
+      if (fi) fi.value = "";
+      refreshPhotoUI();
+    };
+  }
+
+  if (fi) {
+    fi.onchange = async () => {
+      const file = fi.files?.[0];
+      if (!file) return;
+      try {
+        // iPad: mejor reducir para que no se ponga lenta la app
+        photoData = await imageFileToDataURL(file, { maxW: 900, maxH: 900, quality: 0.72 });
+        refreshPhotoUI();
+      } catch (e) {
+        alert("No se pudo cargar la foto. Intenta con otra.");
+      }
+    };
+  }
+
 
   $("cancelA").onclick = closeModal;
   $("saveA").onclick = async () => {
@@ -288,6 +387,7 @@ async function openAnimalForm(existing) {
       sexo: $("aSexo").value,
       raza: $("aRaza").value.trim(),
       extras,
+      photo: photoData,
       createdBy: a.createdBy || state.userId,
       createdAt: a.createdAt || Date.now(),
     };
@@ -313,7 +413,7 @@ function renderAnimals() {
     .sort((a, b) => (a.arete || "").localeCompare(b.arete || ""))
     .forEach((a) => {
       const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${escapeHtml(a.arete || "—")}</td><td>${escapeHtml(a.name || "—")}</td><td>${escapeHtml(a.finca || "—")}</td><td>${escapeHtml(a.sexo || "—")}</td><td>${escapeHtml(a.raza || "—")}</td>
+      tr.innerHTML = `<td><div style="display:flex; gap:8px; align-items:center">${a.photo ? '<img class="thumb-sm" src="' + escapeAttr(a.photo) + '" alt=""/>' : ''}<div>${escapeHtml(a.arete || "—")}</div></div></td><td>${escapeHtml(a.name || "—")}</td><td>${escapeHtml(a.finca || "—")}</td><td>${escapeHtml(a.sexo || "—")}</td><td>${escapeHtml(a.raza || "—")}</td>
         <td style="white-space:nowrap"><button class="btn secondary">Ver/Editar</button> <button class="btn secondary">Historial</button> <button class="btn danger">Borrar</button></td>`;
       const btns = tr.querySelectorAll("button");
       btns[0].onclick = () => openAnimalForm(a);
@@ -343,9 +443,12 @@ async function openAnimalHistory(animalId){
 
   const header = `
     <div class="item" style="margin-bottom:10px">
-      <div>
-        <div style="font-weight:900; font-size:16px">${escapeHtml(a.arete || "s/a")} • ${escapeHtml(a.name || "")}</div>
+      <div style="display:flex; gap:10px; align-items:center">
+        ${a.photo ? '<img class="thumb" style="width:64px;height:64px" src="' + escapeAttr(a.photo) + '" alt=""/>' : ''}
+        <div>
+          <div style="font-weight:900; font-size:16px">${escapeHtml(a.arete || "s/a")} • ${escapeHtml(a.name || "")}</div>
         <div class="small">Finca: ${escapeHtml(a.finca || "—")} • Sexo: ${escapeHtml(a.sexo || "—")} • Raza: ${escapeHtml(a.raza || "—")}</div>
+        </div>
       </div>
       <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end">
         <button class="btn" id="histAddMed">+ Medicamento</button>

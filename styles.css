@@ -160,3 +160,22 @@ thead th{
 .topbar{
   z-index: 20 !important;
 }
+
+
+/* Photos */
+.thumb{
+  width:80px;
+  height:80px;
+  object-fit:cover;
+  border-radius:14px;
+  border:1px solid var(--line);
+  background:#0b1220;
+}
+.thumb-sm{
+  width:28px;
+  height:28px;
+  object-fit:cover;
+  border-radius:8px;
+  border:1px solid var(--line);
+  background:#0b1220;
+}

@@ -1,7 +1,7 @@
-const CACHE_NAME = 'ganaderia-v2-1772148120';
-// Ganaderia Offline SW (v2026-02-26b)
+const CACHE_NAME = 'ganaderia-v2-1772157005';
+// Ganaderia Offline SW (v2026-02-26c)
 const CACHE_PREFIX = 'ganaderia-offline-';
-const CACHE = `${CACHE_PREFIX}2026-02-26b`;
+const CACHE = `${CACHE_PREFIX}2026-02-26c`;
 const ASSETS = [
   './',
   './index.html',
